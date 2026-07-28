@@ -1,3 +1,51 @@
+/* ===========================================================
+   CAMADA DE PERSISTÊNCIA (ABSTRACT STORAGE REPOSITORY)
+   =========================================================== */
+const CharacterRepository = {
+  _getKey(userId) {
+    return `newgen_characters_${userId || 'guest'}`;
+  },
+
+  async getSlots(userId) {
+    try {
+      const raw = localStorage.getItem(this._getKey(userId));
+      if (!raw) return Array(5).fill(null);
+      const parsed = JSON.parse(raw);
+      return Array.from({ length: 5 }, (_, i) => parsed[i] || null);
+    } catch (e) {
+      console.error("[CharacterRepository] Erro ao carregar slots:", e);
+      return Array(5).fill(null);
+    }
+  },
+
+  async saveSlot(userId, slotIndex, characterData) {
+    try {
+      const slots = await this.getSlots(userId);
+      slots[slotIndex] = {
+        ...characterData,
+        updatedAt: new Date().toISOString()
+      };
+      localStorage.setItem(this._getKey(userId), JSON.stringify(slots));
+      return slots[slotIndex];
+    } catch (e) {
+      console.error("[CharacterRepository] Erro ao salvar slot:", e);
+      throw e;
+    }
+  },
+
+  async deleteSlot(userId, slotIndex) {
+    try {
+      const slots = await this.getSlots(userId);
+      slots[slotIndex] = null;
+      localStorage.setItem(this._getKey(userId), JSON.stringify(slots));
+      return true;
+    } catch (e) {
+      console.error("[CharacterRepository] Erro ao deletar slot:", e);
+      throw e;
+    }
+  }
+};
+
 import {
   GoogleAuthProvider,
   signInWithPopup,
