@@ -46,6 +46,7 @@ const provider = new GoogleAuthProvider();
     loginModal: document.getElementById("loginModal"),
     authUser: document.getElementById("authUser"),
     authEmail: document.getElementById("authEmail"),
+    authPassword: document.getElementById("authPassword"),
     createAccountBtn: document.getElementById("createAccountBtn"),
     doLoginBtn: document.getElementById("doLoginBtn"),
     googleLoginBtn: document.getElementById("googleLoginBtn"),
@@ -277,6 +278,18 @@ const provider = new GoogleAuthProvider();
     });
   }
 
+  function generateSalt() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function hashPassword(password, salt) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(salt + password);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+
   function openLoginModal() {
     if (!DOM.loginModal) return;
     DOM.loginModal.style.display = "flex";
@@ -326,8 +339,12 @@ const provider = new GoogleAuthProvider();
     }
   }
 
-  async function createAccount(username, email = "") {
+  async function createAccount(username, email = "", password = "") {
     if (!username) return showToast("Digite um nome de usuário.");
+    if (!password || password.length < 6) {
+      return showToast("A senha precisa ter no mínimo 6 caracteres.");
+    }
+
     const key = `newgen_user_${username}`;
 
     if (localStorage.getItem(key)) {
@@ -335,18 +352,33 @@ const provider = new GoogleAuthProvider();
       return;
     }
 
-    const user = { username, email, createdAt: new Date().toISOString(), characters: [] };
+    const salt = generateSalt();
+    const passwordHash = await hashPassword(password, salt);
+
+    const user = {
+      username,
+      email,
+      salt,
+      passwordHash,
+      createdAt: new Date().toISOString(),
+      characters: []
+    };
     localStorage.setItem(key, JSON.stringify(user));
     showToast(`Conta criada: ${username}`);
     closeLoginModal();
+    if (DOM.authPassword) DOM.authPassword.value = "";
     app.auth.user = { ...user, uid: username, displayName: username, photoURL: "" };
     loadUserData();
     updateAccountUI();
-    await sendToSheets("saveUser", user).catch(err => console.error(err));
+
+    const { salt: _s, passwordHash: _p, ...userForSheet } = user;
+    await sendToSheets("saveUser", userForSheet).catch(err => console.error(err));
   }
 
-  function doLogin(username) {
+  async function doLogin(username, password) {
     if (!username) return showToast("Digite um nome de usuário.");
+    if (!password) return showToast("Digite sua senha.");
+
     const key = `newgen_user_${username}`;
     const raw = localStorage.getItem(key);
 
@@ -356,6 +388,18 @@ const provider = new GoogleAuthProvider();
     }
 
     const user = JSON.parse(raw);
+
+    if (!user.passwordHash || !user.salt) {
+      showToast("Esta conta foi criada antes do sistema de senha. Crie uma nova conta.");
+      return;
+    }
+
+    const attemptHash = await hashPassword(password, user.salt);
+    if (attemptHash !== user.passwordHash) {
+      showToast("Senha incorreta.");
+      return;
+    }
+
     app.auth.user = {
       uid: user.uid || username,
       displayName: user.username,
@@ -365,6 +409,7 @@ const provider = new GoogleAuthProvider();
 
     showToast(`Bem-vindo, ${user.username}`);
     closeLoginModal();
+    if (DOM.authPassword) DOM.authPassword.value = "";
     loadUserData();
     updateAccountUI();
   }
@@ -672,10 +717,10 @@ const provider = new GoogleAuthProvider();
     document.getElementById("loginBtn")?.addEventListener("click", openLoginModal);
     document.getElementById("closeLoginModal")?.addEventListener("click", closeLoginModal);
     document.getElementById("createAccountBtn")?.addEventListener("click", () => {
-      createAccount(DOM.authUser.value?.trim(), DOM.authEmail.value?.trim());
+      createAccount(DOM.authUser.value?.trim(), DOM.authEmail.value?.trim(), DOM.authPassword?.value || "");
     });
     document.getElementById("doLoginBtn")?.addEventListener("click", () => {
-      doLogin(DOM.authUser.value?.trim());
+      doLogin(DOM.authUser.value?.trim(), DOM.authPassword?.value || "");
     });
     document.getElementById("googleLoginBtn")?.addEventListener("click", loginWithGoogle);
     document.getElementById("logoutBtn")?.addEventListener("click", logout);
