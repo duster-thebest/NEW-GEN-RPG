@@ -278,6 +278,10 @@ const provider = new GoogleAuthProvider();
     });
   }
 
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
   function generateSalt() {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -343,6 +347,9 @@ const provider = new GoogleAuthProvider();
     if (!username) return showToast("Digite um nome de usuário.");
     if (!password || password.length < 6) {
       return showToast("A senha precisa ter no mínimo 6 caracteres.");
+    }
+    if (email && !isValidEmail(email)) {
+      return showToast("Digite um e-mail válido (ex: nome@dominio.com).");
     }
 
     const key = `newgen_user_${username}`;
