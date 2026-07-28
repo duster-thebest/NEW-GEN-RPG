@@ -946,6 +946,8 @@ function generateAndCopyTemplate() {
     haki: document.getElementById("char-haki").value
   };
 
+
+   
   // Gerador de Template Oficial no padrão OPNG
   const template = `ㅤ
 ──── ─── ─── ────
@@ -1053,7 +1055,6 @@ function generateAndCopyTemplate() {
       slotsWrap.appendChild(card);
     }
 
-    fichaRoot.appendChild(slotsWrap);
 
     fichaRoot.querySelectorAll(".btn-edit").forEach(btn => {
       btn.addEventListener("click", () => {
