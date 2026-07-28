@@ -799,21 +799,220 @@ const provider = new GoogleAuthProvider();
     renderFichaPage();
   }
 
-  function renderFichaPage() {
-    const fichaRoot = document.getElementById("ficha-root");
-    if (!fichaRoot) return;
-    fichaRoot.innerHTML = "";
+ /* ===========================================================
+   SISTEMA DE GERENCIAMENTO DE FICHAS (5 SLOTS & AUTO-SAVE)
+   =========================================================== */
 
-    if (!app.auth.user) {
-      fichaRoot.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24"><path d="M12 3c4 2 7 6 7 10a7 7 0 01-14 0c0-4 3-8 7-10z"/></svg>
-          <h4>Faça login para criar e salvar sua ficha</h4>
-          <p>Você pode visualizar as informações, mas precisa entrar para criar e gerenciar personagens.</p>
+async function renderFichaPage() {
+  const container = document.getElementById("ficha-slots-container");
+  if (!container) return;
+
+  const currentUserId = auth.currentUser ? auth.currentUser.uid : "guest";
+  const slots = await CharacterRepository.getSlots(currentUserId);
+
+  container.innerHTML = slots.map((char, index) => {
+    const slotNumber = index + 1;
+    if (!char) {
+      return `
+        <div class="slot-card empty">
+          <div class="slot-header">
+            <span class="slot-badge">Slot ${slotNumber}</span>
+          </div>
+          <div class="slot-body">
+            <h4>Slot Vazio</h4>
+            <p>Nenhum personagem criado neste slot.</p>
+          </div>
+          <div class="slot-actions">
+            <button class="btn-secondary" onclick="window.openCharacterEditor(${index})">+ Criar Personagem</button>
+          </div>
         </div>
       `;
-      return;
     }
+
+    return `
+      <div class="slot-card active">
+        <div class="slot-header">
+          <span class="slot-badge">Slot ${slotNumber}</span>
+          <span class="slot-race">${char.raca || 'Sem Raça'}</span>
+        </div>
+        <div class="slot-body">
+          <h4>${char.nome || 'Sem Nome'}</h4>
+          <p><strong>Linhagem:</strong> ${char.linhagem || '-'}</p>
+          <p><strong>Recompensa:</strong> ${char.recompensa || '-'}</p>
+        </div>
+        <div class="slot-actions">
+          <button class="btn-primary" onclick="window.openCharacterEditor(${index})">Editar / Abrir</button>
+          <button class="btn-danger" onclick="window.deleteCharacterSlot(${index})">Excluir</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  setupEditorListeners();
+}
+
+// Expõe handlers globais para os botões do HTML
+window.openCharacterEditor = async function(slotIndex) {
+  const currentUserId = auth.currentUser ? auth.currentUser.uid : "guest";
+  const slots = await CharacterRepository.getSlots(currentUserId);
+  const char = slots[slotIndex] || {};
+
+  document.getElementById("char-slot-index").value = slotIndex;
+  document.getElementById("editor-title").textContent = `Personagem - Slot ${slotIndex + 1}`;
+
+  // Preenche inputs
+  document.getElementById("char-nome").value = char.nome || "";
+  document.getElementById("char-idade").value = char.idade || "";
+  document.getElementById("char-genero").value = char.genero || "";
+  document.getElementById("char-recompensa").value = char.recompensa || "";
+  document.getElementById("char-historia").value = char.historia || "";
+  document.getElementById("char-personalidade").value = char.personalidade || "";
+  document.getElementById("char-raca").value = char.raca || "";
+  document.getElementById("char-linhagem").value = char.linhagem || "";
+  document.getElementById("char-haki").value = char.haki || "";
+
+  document.getElementById("character-editor").style.display = "flex";
+  validateAndSaveCurrentSlot();
+};
+
+window.deleteCharacterSlot = async function(slotIndex) {
+  if (!confirm(`Tem certeza de que deseja excluir o personagem do Slot ${slotIndex + 1}?`)) return;
+
+  const currentUserId = auth.currentUser ? auth.currentUser.uid : "guest";
+  await CharacterRepository.deleteSlot(currentUserId, slotIndex);
+  showToast(`Slot ${slotIndex + 1} excluído com sucesso.`);
+  renderFichaPage();
+};
+
+function setupEditorListeners() {
+  const form = document.getElementById("character-form");
+  const closeBtn = document.getElementById("close-editor-btn");
+  const copyBtn = document.getElementById("copy-ficha-btn");
+
+  if (!form) return;
+
+  // Auto-save e Validação Reativa ao digitar ou alterar
+  form.querySelectorAll("input, select, textarea").forEach(input => {
+    input.oninput = () => validateAndSaveCurrentSlot();
+    input.onchange = () => validateAndSaveCurrentSlot();
+  });
+
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      document.getElementById("character-editor").style.display = "none";
+      renderFichaPage();
+    };
+  }
+
+  if (copyBtn) {
+    copyBtn.onclick = generateAndCopyTemplate;
+  }
+}
+
+async function validateAndSaveCurrentSlot() {
+  const slotIndex = parseInt(document.getElementById("char-slot-index").value, 10);
+  const data = {
+    nome: document.getElementById("char-nome").value.trim(),
+    idade: document.getElementById("char-idade").value.trim(),
+    genero: document.getElementById("char-genero").value.trim(),
+    recompensa: document.getElementById("char-recompensa").value.trim(),
+    historia: document.getElementById("char-historia").value.trim(),
+    personalidade: document.getElementById("char-personalidade").value.trim(),
+    raca: document.getElementById("char-raca").value,
+    linhagem: document.getElementById("char-linhagem").value.trim(),
+    haki: document.getElementById("char-haki").value
+  };
+
+  // Salva no LocalStorage via Repositório
+  const currentUserId = auth.currentUser ? auth.currentUser.uid : "guest";
+  await CharacterRepository.saveSlot(currentUserId, slotIndex, data);
+
+  // Validação dos campos obrigatórios ativos
+  const isValid = Object.values(data).every(val => val !== "");
+  const copyBtn = document.getElementById("copy-ficha-btn");
+  if (copyBtn) copyBtn.disabled = !isValid;
+}
+
+function generateAndCopyTemplate() {
+  const char = {
+    nome: document.getElementById("char-nome").value,
+    idade: document.getElementById("char-idade").value,
+    genero: document.getElementById("char-genero").value,
+    recompensa: document.getElementById("char-recompensa").value,
+    historia: document.getElementById("char-historia").value,
+    personalidade: document.getElementById("char-personalidade").value,
+    raca: document.getElementById("char-raca").value,
+    linhagem: document.getElementById("char-linhagem").value,
+    haki: document.getElementById("char-haki").value
+  };
+
+  // Gerador de Template Oficial no padrão OPNG
+  const template = `ㅤ
+──── ─── ─── ────
+﹆ ֪𖤐  ֺ ໑ *OPNG - FICHA*
+──── ───
+ 雄. | 𝐍𝗈𝗆𝖾:: ${char.nome}
+ 雄. | 𝐈𝖽𝖺𝖽𝖾:: ${char.idade}
+ 雄. | 𝐑𝖺𝖼̧𝖺:: ${char.raca}
+ 雄. | 𝐆ênero::: ${char.genero}
+ 雄. | 𝐋inhagem:: ${char.linhagem}
+ 雄. | 𝐑ecompensa:: ${char.recompensa}
+     _┈ֺ──̸ . 
+
+   _.英雄. ⤿ *HISTÓRIA*
+     _┈ֺ──̸ . ${char.historia}
+
+   _.英雄. | ֺ⤿𝐏𝖾𝗋𝗌𝗈𝗇𝖺𝗅𝗂𝖽𝖺𝖽𝖾:
+     _┈ֺ──̸ . ${char.personalidade}
+
+────────────────────
+════════════════
+═══ ═══
+
+*𖤐CLASSIFICAÇÃO*
+
+    .英雄. | ֺ⤿Classe :: 
+    .英雄. | ֺ⤿Afiliação :: 
+    .英雄. | ֺ⤿Patente :: 
+   
+
+──── *Atributos:*
+  _.英雄. | ֺ⤿Força : 
+  _.英雄. | ֺ⤿Velocidade : 
+  _.英雄. | ֺ⤿Resistência : 
+  _.英雄. | ֺ⤿Vitalidade : 
+
+────────────────────
+
+*𖤐 COMBATE*
+
+    .英雄. | ֺ⤿Estilo de luta :: 
+    .英雄. | ֺ⤿Haki :: ${char.haki}
+    .英雄. | ֺ⤿Akuma no Mi :: 
+    
+      *┈ֺ──̸*
+
+*𖤐 EQUIPAMENTO*
+
+    .英雄. | ֺ⤿Itens :: 
+    .英雄. | ֺ⤿Recursos :: 
+    .英雄. | ֺ⤿Berries :: 
+    
+      _┈ֺ──̸ . ( armas, objetos, dinheiro ou recursos disponíveis )
+
+────ㅤ───────ㅤ────
+──ㅤ────`;
+
+  navigator.clipboard.writeText(template).then(() => {
+    const status = document.getElementById("copy-status");
+    if (status) {
+      status.textContent = "Ficha copiada para a área de transferência!";
+      setTimeout(() => { status.textContent = ""; }, 3000);
+    }
+  }).catch(err => {
+    console.error("Erro ao copiar ficha:", err);
+  });
+}
 
     loadUserData();
 
