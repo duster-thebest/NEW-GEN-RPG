@@ -24,7 +24,8 @@ const provider = new GoogleAuthProvider();
     },
     state: {
       currentSlot: 0,
-      currentCharacter: null
+      currentCharacter: null,
+      expandedSlot: null
     },
     runtimeUser: null
   };
@@ -474,6 +475,84 @@ const provider = new GoogleAuthProvider();
     showToast("Ficha salva localmente.");
   }
 
+  const RACAS_LIVRES = ["Humanos", "Homens-Peixe", "Tritão/Sereia", "Kujas", "Bucaneiros", "Mink's", "Gigantes", "Onis"];
+  const LINHAGENS_PREMIUM = ["Celestiais", "Seraphins", "Ghoul", "Germa 66", "Gigantes ancestrais", "Lunarianos", "Apóstolos", "Nosferatu's", "Shinigami's", "Deuses antigos"];
+  const HAKI_OPCOES = ["Nenhum", "Observação", "Armamento", "Observação e Armamento"];
+
+  const FICHA_TEMPLATE = `ㅤ
+──── ─── ─── ────
+﹆ ֪𖤐  ֺ ໑ *OPNG - FICHA*
+──── ───
+ 雄. | 𝐍𝗈𝗆𝖾:: {{nome}}
+ 雄. | 𝐈𝖽𝖺𝖽𝖾:: {{idade}}
+ 雄. | 𝐑𝖺𝖼̧𝖺:: {{raca}}
+ 雄. | 𝐆ênero::: {{genero}}
+ 雄. | 𝐋inhagem:: {{linhagem}}
+ 雄. | 𝐑ecompensa:: {{recompensa}}
+      _┈ֺ──̸ . 
+    _.英雄. ⤿ *HISTÓRIA*_
+      _┈ֺ──̸ . {{historia}}_
+    _.英雄. | ֺ⤿𝐏𝖾𝗋𝗌𝗈𝗇𝖺𝗅𝗂𝖽𝖺𝖽𝖾:_
+      _┈ֺ──̸ . {{personalidade}}_
+────────────────────
+════════════════
+═══ ═══
+*𖤐CLASSIFICAÇÃO*
+    .英雄. | ֺ⤿Classe :: {{classe}}
+    .英雄. | ֺ⤿Afiliação :: {{afiliacao}}
+    .英雄. | ֺ⤿Patente :: {{patente}}
+   
+──── *Atributos:*
+  _.英雄. | ֺ⤿Força : {{forca}}
+  _.英雄. | ֺ⤿Velocidade : {{velocidade}}
+  _.英雄. | ֺ⤿Resistência : {{resistencia}}
+  _.英雄. | ֺ⤿Vitalidade : {{vitalidade}}
+────────────────────
+*𖤐 COMBATE*
+    .英雄. | ֺ⤿Estilo de luta :: {{estilo}}
+    .英雄. | ֺ⤿Haki :: {{haki}}
+    .英雄. | ֺ⤿Akuma no Mi :: {{akuma}}
+    
+      *┈ֺ──̸*
+*𖤐 EQUIPAMENTO*
+    .英雄. | ֺ⤿Itens :: {{itens}}
+    .英雄. | ֺ⤿Recursos :: {{recursos}}
+    
+      _┈ֺ──̸ . ( armas, objetos, dinheiro ou recursos disponíveis )
+────ㅤ───────ㅤ────
+──ㅤ────`;
+
+  function escapeHtml(str) {
+    return String(str == null ? "" : str).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function createDefaultCharacter(slotIndex) {
+    return {
+      id: `char-${Date.now()}`,
+      name: `Personagem ${slotIndex + 1}`,
+      idade: "",
+      genero: "",
+      recompensa: "",
+      historia: "",
+      personalidade: "",
+      race: null,
+      linhagem: null,
+      classe: null,
+      afiliacao: null,
+      patente: null,
+      estilo: null,
+      haki: null,
+      akuma: null,
+      itens: "",
+      recursos: "",
+      atributos: { Vitalidade: 0, Força: 0, Velocidade: 0, Resistência: 0 },
+      locked: { race: false, linhagem: false },
+      createdAt: new Date().toISOString()
+    };
+  }
+
   function getCurrentCharacter() {
     if (!app.auth.user) return null;
     const slot = app.state.currentSlot || 0;
@@ -481,25 +560,28 @@ const provider = new GoogleAuthProvider();
     let char = app.runtimeUser.characters[slot];
 
     if (!char) {
-      char = {
-        id: `char-${Date.now()}`,
-        name: `Personagem ${slot + 1}`,
-        image: "",
-        race: null,
-        classe: null,
-        linhagem: null,
-        estilo: null,
-        haki: null,
-        akuma: null,
-        atributos: { Vitalidade: 0, Força: 0, Velocidade: 0, Resistência: 0 },
-        locked: { race: false, linhagem: false },
-        createdAt: new Date().toISOString()
-      };
+      char = createDefaultCharacter(slot);
       app.runtimeUser.characters[slot] = char;
       saveUserDataToLocal();
     }
 
     return char;
+  }
+
+  function isFichaComplete(char) {
+    if (!char) return false;
+    const a = char.atributos || {};
+    const attrsFilled = Number(a["Força"]) > 0 && Number(a["Velocidade"]) > 0 &&
+      Number(a["Resistência"]) > 0 && Number(a["Vitalidade"]) > 0;
+    return !!(
+      char.name && char.name.trim() &&
+      char.idade && String(char.idade).trim() &&
+      char.genero && char.genero.trim() &&
+      char.race &&
+      char.historia && char.historia.trim() &&
+      char.personalidade && char.personalidade.trim() &&
+      attrsFilled
+    );
   }
 
   function selectOption(type, value) {
@@ -552,6 +634,123 @@ const provider = new GoogleAuthProvider();
     return names[k] || k;
   }
 
+  function buildFichaFormHTML(char) {
+    const inputStyle = "padding:8px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ivory);width:100%;box-sizing:border-box;";
+    const textareaStyle = inputStyle + "min-height:70px;margin-bottom:10px;resize:vertical;";
+    const labelStyle = "font-size:12px;color:var(--lavender);margin-bottom:4px;display:block;";
+    const raceLocked = !!char.locked?.race;
+    const linhagemLocked = !!char.locked?.linhagem;
+
+    const racaOptions = RACAS_LIVRES.map(r =>
+      `<option value="${r}" ${char.race === r ? "selected" : ""}>${r}</option>`
+    ).join("");
+
+    const linhagemOptions = LINHAGENS_PREMIUM.map(l =>
+      `<option value="${l}" ${char.linhagem === l ? "selected" : ""}>${l} 🔒 Premium</option>`
+    ).join("");
+
+    const generoOptions = ["Masculino", "Feminino", "Outro"].map(g =>
+      `<option value="${g}" ${char.genero === g ? "selected" : ""}>${g}</option>`
+    ).join("");
+
+    const hakiOptions = HAKI_OPCOES.map(h =>
+      `<option value="${h}" ${char.haki === h ? "selected" : ""}>${h}</option>`
+    ).join("");
+
+    return `
+      <div class="ficha-form" style="margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02);">
+
+        <h4 style="margin-top:0;">Identificação</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+          <div><span style="${labelStyle}">Nome</span><input data-field="name" value="${escapeHtml(char.name)}" style="${inputStyle}" /></div>
+          <div><span style="${labelStyle}">Idade</span><input data-field="idade" value="${escapeHtml(char.idade)}" style="${inputStyle}" /></div>
+          <div><span style="${labelStyle}">Gênero</span><select data-field="genero" style="${inputStyle}"><option value="">Escolha</option>${generoOptions}</select></div>
+          <div><span style="${labelStyle}">Recompensa</span><input data-field="recompensa" value="${escapeHtml(char.recompensa)}" placeholder="ex: B$ 5.000" style="${inputStyle}" /></div>
+        </div>
+
+        <h4>Raça e Linhagem</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:6px;">
+          <div>
+            <span style="${labelStyle}">Raça${raceLocked ? " (permanente)" : ""}</span>
+            <select data-field="race" ${raceLocked ? "disabled" : ""} style="${inputStyle}${raceLocked ? "opacity:.6;" : ""}">
+              <option value="">Escolha a raça</option>
+              ${racaOptions}
+            </select>
+          </div>
+          <div>
+            <span style="${labelStyle}">Linhagem${linhagemLocked ? " (permanente)" : " (opcional, premium)"}</span>
+            <select data-field="linhagem" ${linhagemLocked ? "disabled" : ""} style="${inputStyle}${linhagemLocked ? "opacity:.6;" : ""}">
+              <option value="">Nenhuma</option>
+              ${linhagemOptions}
+            </select>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--lavender);margin:0 0 14px;">Raça e Linhagem, uma vez definidas e salvas, não podem mais ser alteradas.</p>
+
+        <h4>História e Personalidade</h4>
+        <span style="${labelStyle}">História</span>
+        <textarea data-field="historia" placeholder="Conte a história do personagem" style="${textareaStyle}">${escapeHtml(char.historia)}</textarea>
+        <span style="${labelStyle}">Personalidade</span>
+        <textarea data-field="personalidade" placeholder="Descreva a personalidade" style="${textareaStyle}">${escapeHtml(char.personalidade)}</textarea>
+
+        <h4>Classificação</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+          <div><span style="${labelStyle}">Classe</span><select disabled style="${inputStyle}opacity:.5;"><option>Em breve</option></select></div>
+          <div><span style="${labelStyle}">Afiliação</span><select disabled style="${inputStyle}opacity:.5;"><option>Em breve</option></select></div>
+          <div><span style="${labelStyle}">Patente</span><select disabled style="${inputStyle}opacity:.5;"><option>Em breve</option></select></div>
+        </div>
+
+        <h4>Atributos</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px;">
+          <div><span style="${labelStyle}">Força</span><input type="number" min="0" data-field="atributo-Força" value="${char.atributos?.["Força"] || 0}" style="${inputStyle}" /></div>
+          <div><span style="${labelStyle}">Velocidade</span><input type="number" min="0" data-field="atributo-Velocidade" value="${char.atributos?.["Velocidade"] || 0}" style="${inputStyle}" /></div>
+          <div><span style="${labelStyle}">Resistência</span><input type="number" min="0" data-field="atributo-Resistência" value="${char.atributos?.["Resistência"] || 0}" style="${inputStyle}" /></div>
+          <div><span style="${labelStyle}">Vitalidade</span><input type="number" min="0" data-field="atributo-Vitalidade" value="${char.atributos?.["Vitalidade"] || 0}" style="${inputStyle}" /></div>
+        </div>
+
+        <h4>Combate</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+          <div><span style="${labelStyle}">Estilo de luta</span><select disabled style="${inputStyle}opacity:.5;"><option>Em breve</option></select></div>
+          <div><span style="${labelStyle}">Haki</span><select data-field="haki" style="${inputStyle}"><option value="">Nenhum</option>${hakiOptions}</select></div>
+          <div><span style="${labelStyle}">Akuma no Mi</span><select disabled style="${inputStyle}opacity:.5;"><option>Em breve</option></select></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function handleFichaFieldChange(slotIndex, el) {
+    const char = app.runtimeUser.characters[slotIndex];
+    if (!char) return;
+    const field = el.getAttribute("data-field");
+    const value = el.value;
+
+    if (field.startsWith("atributo-")) {
+      const attrName = field.replace("atributo-", "");
+      char.atributos = char.atributos || {};
+      char.atributos[attrName] = Math.max(0, parseInt(value, 10) || 0);
+    } else if (field === "race") {
+      if (char.locked?.race || !value) return;
+      char.race = value;
+      char.locked = char.locked || {};
+      char.locked.race = true;
+    } else if (field === "linhagem") {
+      if (char.locked?.linhagem || !value) return;
+      if (LINHAGENS_PREMIUM.includes(value)) {
+        showToast("Linhagem Premium — em breve você poderá desbloquear via pagamento.");
+        el.value = char.linhagem || "";
+        return;
+      }
+      char.linhagem = value;
+      char.locked = char.locked || {};
+      char.locked.linhagem = true;
+    } else {
+      char[field] = value;
+    }
+
+    saveUserDataToLocal();
+    renderFichaPage();
+  }
+
   function renderFichaPage() {
     const fichaRoot = document.getElementById("ficha-root");
     if (!fichaRoot) return;
@@ -572,33 +771,35 @@ const provider = new GoogleAuthProvider();
 
     const slotsWrap = document.createElement("div");
     slotsWrap.style.display = "grid";
-    slotsWrap.style.gridTemplateColumns = "repeat(auto-fit,minmax(220px,1fr))";
+    slotsWrap.style.gridTemplateColumns = "repeat(auto-fit,minmax(280px,1fr))";
     slotsWrap.style.gap = "12px";
 
     for (let i = 0; i < 5; i++) {
       const slot = app.runtimeUser.characters[i] || null;
       const card = document.createElement("div");
       card.className = "attr-card";
-      const isActive = app.state.currentSlot === i;
-      card.style.border = isActive ? "2px solid var(--violet)" : "";
+      const isExpanded = app.state.expandedSlot === i;
+      card.style.border = isExpanded ? "2px solid var(--violet)" : "";
+      card.style.gridColumn = isExpanded ? "1 / -1" : "";
 
       let inner = "";
       if (!slot) {
         inner = `<h3>Vago — Personagem ${i + 1}</h3>
-                 <p>Slot disponível. Clique em Editar para começar.</p>
+                 <p>Slot disponível. Clique em Criar para começar.</p>
                  <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
                    <button data-slot="${i}" class="btn-edit">Criar</button>
                  </div>`;
       } else {
-        inner = `<h3>${slot.name}</h3>
-                 <p style="color:var(--lavender);font-size:13px;margin-top:6px;">ID: ${slot.id}</p>
-                 <p style="margin-top:8px;color:var(--lavender);font-size:13px;">Raça: ${slot.race || "-"}</p>
-                 <p style="margin-top:2px;color:var(--lavender);font-size:13px;">Classe: ${slot.classe || "-"}</p>
-                 <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
-                   <button data-slot="${i}" class="btn-edit">Editar</button>
-                   <button data-slot="${i}" class="btn-copy">Copiar ficha</button>
+        const complete = isFichaComplete(slot);
+        inner = `<h3>${escapeHtml(slot.name)}</h3>
+                 <p style="color:var(--lavender);font-size:13px;margin-top:6px;">Raça: ${slot.race || "-"}</p>
+                 <p style="margin-top:2px;color:var(--lavender);font-size:13px;">Status: ${complete ? "✅ Ficha completa" : "⏳ Ficha incompleta"}</p>
+                 <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+                   <button data-slot="${i}" class="btn-edit">${isExpanded ? "Fechar" : "Editar"}</button>
+                   ${complete ? `<button data-slot="${i}" class="btn-copy">Copiar ficha</button>` : ""}
                    <button data-slot="${i}" class="btn-delete">Excluir</button>
-                 </div>`;
+                 </div>
+                 ${isExpanded ? buildFichaFormHTML(slot) : ""}`;
       }
 
       card.innerHTML = inner;
@@ -612,11 +813,18 @@ const provider = new GoogleAuthProvider();
         const slotIndex = parseInt(btn.getAttribute("data-slot"), 10);
         app.state.currentSlot = slotIndex;
         if (!app.runtimeUser.characters[slotIndex]) {
-          app.runtimeUser.characters[slotIndex] = null;
+          app.runtimeUser.characters[slotIndex] = createDefaultCharacter(slotIndex);
           saveUserDataToLocal();
         }
-        showPage("personagem");
-        showToast("Abra a aba Personagem e escolha as opções para montar sua ficha.");
+        app.state.expandedSlot = app.state.expandedSlot === slotIndex ? null : slotIndex;
+        renderFichaPage();
+      });
+    });
+
+    fichaRoot.querySelectorAll(".ficha-form [data-field]").forEach(el => {
+      const eventName = (el.tagName === "SELECT") ? "change" : "change";
+      el.addEventListener(eventName, () => {
+        handleFichaFieldChange(app.state.expandedSlot, el);
       });
     });
 
@@ -641,6 +849,7 @@ const provider = new GoogleAuthProvider();
         const slotIndex = parseInt(btn.getAttribute("data-slot"), 10);
         if (!confirm("Excluir este personagem? Esta ação é irreversível.")) return;
         app.runtimeUser.characters[slotIndex] = null;
+        if (app.state.expandedSlot === slotIndex) app.state.expandedSlot = null;
         saveUserDataToLocal();
         renderFichaPage();
       });
@@ -648,21 +857,30 @@ const provider = new GoogleAuthProvider();
   }
 
   function mountFichaText(char) {
-    return [
-      `Nome: ${char.name || ""}`,
-      `ID: ${char.id || ""}`,
-      `Raça: ${char.race || ""}`,
-      `Classe: ${char.classe || ""}`,
-      `Linhagem: ${char.linhagem || ""}`,
-      `Estilo: ${char.estilo || ""}`,
-      `Haki: ${char.haki || ""}`,
-      `Akuma no Mi: ${char.akuma || ""}`,
-      `Atributos:`,
-      `  Vitalidade: ${char.atributos?.Vitalidade || 0}`,
-      `  Força: ${char.atributos?.Força || 0}`,
-      `  Velocidade: ${char.atributos?.Velocidade || 0}`,
-      `  Resistência: ${char.atributos?.Resistência || 0}`
-    ].join("\n");
+    const a = char.atributos || {};
+    const f = v => (v !== undefined && v !== null && String(v).trim()) ? v : "-";
+
+    return FICHA_TEMPLATE
+      .replace("{{nome}}", f(char.name))
+      .replace("{{idade}}", f(char.idade))
+      .replace("{{raca}}", f(char.race))
+      .replace("{{genero}}", f(char.genero))
+      .replace("{{linhagem}}", f(char.linhagem))
+      .replace("{{recompensa}}", f(char.recompensa))
+      .replace("{{historia}}", f(char.historia))
+      .replace("{{personalidade}}", f(char.personalidade))
+      .replace("{{classe}}", f(char.classe))
+      .replace("{{afiliacao}}", f(char.afiliacao))
+      .replace("{{patente}}", f(char.patente))
+      .replace("{{forca}}", f(a["Força"]))
+      .replace("{{velocidade}}", f(a["Velocidade"]))
+      .replace("{{resistencia}}", f(a["Resistência"]))
+      .replace("{{vitalidade}}", f(a["Vitalidade"]))
+      .replace("{{estilo}}", f(char.estilo))
+      .replace("{{haki}}", f(char.haki))
+      .replace("{{akuma}}", f(char.akuma))
+      .replace("{{itens}}", f(char.itens))
+      .replace("{{recursos}}", f(char.recursos));
   }
 
   function setupCharacterInteractions() {
